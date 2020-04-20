@@ -1,10 +1,10 @@
 import { getRepository, getCustomRepository } from 'typeorm';
 import AppError from '../errors/AppError';
 
-import TransactionRepository from '../repositories/TransactionsRepository';
-import Transaction from '../models/Transaction';
+import TransactionsRepository from '../repositories/TransactionsRepository';
 
-import CreateCategoryService from './CreateCategoryService';
+import Transaction from '../models/Transaction';
+import Category from '../models/Category';
 
 interface Request {
   title: string;
@@ -20,24 +20,37 @@ class CreateTransactionService {
     type,
     category,
   }: Request): Promise<Transaction> {
-    const transactionRepository = getCustomRepository(TransactionRepository);
+    const transactionsRepository = getCustomRepository(TransactionsRepository);
+    const categoryRepository = getRepository(Category);
 
-    const createCategory = new CreateCategoryService();
-    const referringCategory = await createCategory.execute({ title: category });
+    const { total } = await transactionsRepository.getBalance();
 
-    const balance = await transactionRepository.getBalance();
-    if (type === 'outcome' && value > balance.total) {
+    if (type === 'outcome' && total < value) {
       throw new AppError('Value goes beyond cash.');
     }
 
-    const transaction = transactionRepository.create({
+    let transactionCategory = await categoryRepository.findOne({
+      where: {
+        title: category,
+      },
+    });
+
+    if (!transactionCategory) {
+      transactionCategory = categoryRepository.create({
+        title: category,
+      });
+
+      await categoryRepository.save(transactionCategory);
+    }
+
+    const transaction = transactionsRepository.create({
       title,
       value,
       type,
-      category_id: referringCategory.id,
+      category: transactionCategory,
     });
 
-    await transactionRepository.save(transaction);
+    await transactionsRepository.save(transaction);
 
     return transaction;
   }
